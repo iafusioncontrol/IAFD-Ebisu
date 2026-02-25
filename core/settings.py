@@ -31,8 +31,6 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 DEBUG = os.getenv('DEBUG') == 'True'
 
 ALLOWED_HOSTS = ["web-production-fd368.up.railway.app"]
-CORS_ALLOW_ALL_ORIGINS = True
-
 
 # Application definition
 
@@ -176,3 +174,4 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 SECURE_SSL_REDIRECT = not DEBUG
 
 CSRF_TRUSTED_ORIGINS = ['https://web-production-fd368.up.railway.app']
+CORS_ALLOW_ALL_ORIGINS = True
