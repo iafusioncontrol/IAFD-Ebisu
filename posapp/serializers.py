@@ -12,7 +12,8 @@ from .models import Business, Product, Sale, SaleItem
 class ProductSyncItemSerializer(serializers.Serializer):
     """
     Serializer para sincronización de productos desde el dispositivo.
-    Acepta id del cliente (local). business_id viene del usuario autenticado.
+    Acepta id del cliente (local), que se mapea a local_id en el modelo.
+    business_id viene del usuario autenticado.
     """
     id = serializers.IntegerField()
     name = serializers.CharField(max_length=255)
@@ -48,12 +49,13 @@ class ProductSyncSerializer(serializers.Serializer):
         synced = []
         for item in validated_data['products']:
             image_base64 = item.pop('image_base64', None)
-            product_id = item.pop('id')
+            # id recibido desde el dispositivo es el id local; lo usamos como local_id
+            local_id = item.pop('id')
             qr_val = item.get('qr_code')
             qr_final = (qr_val or '').strip() or None
             product, created = Product.objects.update_or_create(
                 business_id=business_id,
-                id=product_id,
+                local_id=local_id,
                 defaults={
                     'name': item['name'],
                     'description': (item.get('description') or '').strip() or None,
@@ -82,11 +84,13 @@ class ProductSerializer(serializers.ModelSerializer):
     """
     image_url = serializers.SerializerMethodField()
     business_id = serializers.IntegerField(read_only=True)
+    local_id = serializers.IntegerField()
 
     class Meta:
         model = Product
         fields = [
             'id',
+            'local_id',
             'business_id',
             'name',
             'description',
