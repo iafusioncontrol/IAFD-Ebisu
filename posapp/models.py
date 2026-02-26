@@ -3,7 +3,7 @@ from django.utils import timezone
 from django.conf import settings
 import uuid
 import os
-from django.db import migrations
+
 
 
 def product_image_upload_to(instance, filename):
@@ -168,27 +168,7 @@ class Product(models.Model):
             self.id = 1 if not last_product else last_product.id + 1
             
         super().save(*args, **kwargs)
-             
-def populate_server_id(apps, schema_editor):
-    Product = apps.get_model('posapp', 'Product')
-    for product in Product.objects.all():
-        product.server_id = uuid.uuid4()
-        product.save()
-
-class Migration(migrations.Migration):
-    dependencies = [
-        ('posapp', 'previous_migration'),
-    ]
-
-    operations = [
-        migrations.AddField(
-            model_name='product',
-            name='server_id',
-            field=models.UUIDField(default=uuid.uuid4, unique=True, primary_key=False),
-        ),
-        migrations.RunPython(populate_server_id),
-    ]
-
+        
 
 class Sale(models.Model):
     """
