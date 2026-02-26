@@ -6,6 +6,19 @@ import os
 from django.db import migrations
 
 
+def product_image_upload_to(instance, filename):
+    # Obtener extensión
+    ext = filename.split('.')[-1]
+
+    # Limpiar nombre del negocio (opcional pero recomendado)
+    business_name = instance.business.name.replace(" ", "_")
+
+    # Crear nombre final
+    filename = f"{instance.name}.{ext}"
+
+    return os.path.join('products', business_name, filename)
+
+
 class Business(models.Model):
     """
     Negocio / tienda. Cada negocio tiene sus propios productos y ventas.
@@ -155,19 +168,7 @@ class Product(models.Model):
             self.id = 1 if not last_product else last_product.id + 1
             
         super().save(*args, **kwargs)
-        
-def product_image_upload_to(instance, filename):
-    # Obtener extensión
-    ext = filename.split('.')[-1]
-
-    # Limpiar nombre del negocio (opcional pero recomendado)
-    business_name = instance.business.name.replace(" ", "_")
-
-    # Crear nombre final
-    filename = f"{instance.name}.{ext}"
-
-    return os.path.join('products', business_name, filename)
-        
+             
 def populate_server_id(apps, schema_editor):
     Product = apps.get_model('posapp', 'Product')
     for product in Product.objects.all():
