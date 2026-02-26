@@ -84,7 +84,15 @@ class Product(models.Model):
     Modelo para productos del inventario.
     Pertenece a un negocio. Incluye imagen y campos de sincronización.
     """
-    id = models.AutoField(primary_key=True)
+    server_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        primary_key=True,
+        verbose_name="ID del servidor",
+        help_text="Identificador único del producto en el servidor",
+    )
+    id = models.PositiveIntegerField()
     business = models.ForeignKey(
         Business,
         on_delete=models.CASCADE,
@@ -141,7 +149,7 @@ class Product(models.Model):
             models.Index(fields=['business', 'qr_code']),
             models.Index(fields=['active']),
         ]
-        unique_together = [['business', 'qr_code']]
+        unique_together = [['business', 'qr_code'],['business', 'id']]
 
     def __str__(self):
         return f"{self.name} - ${self.price}"
@@ -149,6 +157,14 @@ class Product(models.Model):
     def save(self, *args, **kwargs):
         """Actualiza updated_at al guardar"""
         self.updated_at = timezone.now()
+        
+        if not self.id:
+            last_product = Product.objects.filter(
+                business=self.business
+            ).order_by('-id').first()
+
+            self.id = 1 if not last_product else last_product.id + 1
+            
         super().save(*args, **kwargs)
 
 
