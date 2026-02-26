@@ -15,16 +15,24 @@ class Migration(migrations.Migration):
             name='product',
             unique_together={('business', 'qr_code')},
         ),
-        migrations.AddField(
-            model_name='product',
-            name='server_id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, help_text='Identificador único del producto en el servidor', primary_key=True, serialize=False, unique=True, verbose_name='ID del servidor'),
-        ),
-        migrations.AlterField(
-            model_name='product',
-            name='id',
-            field=models.PositiveIntegerField(),
-        ),
+        # Campo temporal server_id que luego se elimina en la migración 0009.
+        # No lo marcamos como primary_key para evitar múltiples PK en la tabla.
+        # migrations.AddField(
+        #     model_name='product',
+        #     name='server_id',
+        #     field=models.UUIDField(
+        #         default=uuid.uuid4,
+        #         editable=False,
+        #         help_text='Identificador único del producto en el servidor',
+        #         unique=True,
+        #         verbose_name='ID del servidor',
+        #     ),
+        # ),
+        # migrations.AlterField(
+        #     model_name='product',
+        #     name='id',
+        #     field=models.PositiveIntegerField(),
+        # ),
         migrations.AlterUniqueTogether(
             name='product',
             unique_together={('business', 'id'), ('business', 'qr_code')},

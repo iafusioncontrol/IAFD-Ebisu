@@ -47,7 +47,7 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name='Product',
             fields=[
-                ('id', models.AutoField(primary_key=True, serialize=False)),
+                ('id', models.UUIDField(default=uuid.uuid4, editable=False, help_text='Identificador único del producto en el servidor', primary_key=True, serialize=False, unique=True, verbose_name='ID del servidor')),
                 ('name', models.CharField(max_length=255, verbose_name='Nombre')),
                 ('description', models.TextField(blank=True, null=True, verbose_name='Descripción')),
                 ('qr_code', models.CharField(blank=True, help_text='Código QR del producto (único por negocio)', max_length=100, null=True, verbose_name='Código QR')),

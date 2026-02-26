@@ -11,23 +11,14 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AlterUniqueTogether(
-            name='product',
-            unique_together={('business', 'local_id'), ('business', 'qr_code')},
-        ),
         migrations.AddField(
             model_name='product',
             name='local_id',
             field=models.PositiveIntegerField(default=1),
             preserve_default=False,
         ),
-        migrations.AlterField(
-            model_name='product',
-            name='id',
-            field=models.UUIDField(default=uuid.uuid4, editable=False, help_text='Identificador único del producto en el servidor', primary_key=True, serialize=False, unique=True, verbose_name='ID del servidor'),
-        ),
-        migrations.RemoveField(
-            model_name='product',
-            name='server_id',
+        migrations.AlterUniqueTogether(
+            name='product',
+            unique_together={('business', 'local_id'), ('business', 'qr_code')},
         ),
     ]
