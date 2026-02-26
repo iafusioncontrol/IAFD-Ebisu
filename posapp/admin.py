@@ -52,11 +52,12 @@ class ProductAdmin(admin.ModelAdmin):
     ]
     list_filter = ['active', 'business', 'updated_at']
     search_fields = ['name', 'description', 'qr_code']
-    readonly_fields = ['id', 'updated_at']
+    readonly_fields = ['id', 'updated_at', 'server_id']  # agregar server_id para evitar ediciones
+
     fieldsets = (
         ('Negocio', {'fields': ('business',)}),
         ('Información Básica', {
-            'fields': ('id', 'name', 'description', 'qr_code', 'image')
+            'fields': ('id', 'server_id', 'name', 'description', 'qr_code', 'image')
         }),
         ('Precio e Inventario', {'fields': ('price', 'stock')}),
         ('Sincronización', {'fields': ('updated_at', 'active')}),
