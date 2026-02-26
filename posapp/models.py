@@ -94,7 +94,7 @@ class Product(models.Model):
         verbose_name="ID del servidor",
         help_text="Identificador único del producto en el servidor",
     )
-    id = models.PositiveIntegerField()
+    id = models.PositiveIntegerField(primary_key=False)
     business = models.ForeignKey(
         Business,
         on_delete=models.CASCADE,
