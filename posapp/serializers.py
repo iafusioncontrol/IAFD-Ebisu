@@ -132,7 +132,9 @@ class SaleItemSerializer(serializers.ModelSerializer):
     Serializer para SaleItem.
     Incluye información del producto relacionado.
     """
-    product_id = serializers.IntegerField(source='product.id', read_only=True)
+    # En el frontend, product_id se usa para cruzar con SQLite local (id int),
+    # por lo que aquí devolvemos el local_id del producto.
+    product_id = serializers.IntegerField(source='product.local_id', read_only=True)
     product_name = serializers.CharField(source='product.name', read_only=True)
 
     class Meta:

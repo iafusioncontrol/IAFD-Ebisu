@@ -216,19 +216,20 @@ class PendingSalesView(APIView):
             total_amount += float(sale.total)
             for item in sale.items.all():
                 p = item.product
-                if p.id not in agg:
-                    agg[p.id] = {
+                pid = p.local_id
+                if pid not in agg:
+                    agg[pid] = {
                         'product': p,
                         'quantity_sold': 0,
                         'partial_amount': 0,
                     }
-                agg[p.id]['quantity_sold'] += item.quantity
-                agg[p.id]['partial_amount'] += float(item.total_price)
+                agg[pid]['quantity_sold'] += item.quantity
+                agg[pid]['partial_amount'] += float(item.total_price)
         products = []
         for pid, data in agg.items():
             p = data['product']
             products.append({
-                'product_id': p.id,
+                'product_id': p.local_id,
                 'product_name': p.name,
                 'quantity_sold': data['quantity_sold'],
                 'partial_amount': data['partial_amount'],
@@ -255,6 +256,18 @@ class ApproveAllPendingView(APIView):
             business=business,
             pending_approval=True,
         ))
+        # Al aprobar, ahora sí aplicamos el descuento de stock en el servidor.
+        for sale in sales:
+            for item in sale.items.all():
+                product = item.product
+                if product.stock >= item.quantity:
+                    product.stock -= item.quantity
+                    product.save()
+                else:
+                    return Response(
+                        {'error': f'Stock insuficiente para {product.name}'},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
         for sale in sales:
             sale.pending_approval = False
             sale.save()
@@ -449,20 +462,9 @@ class SaleSyncView(APIView):
         try:
             result = serializer.save()
             synced_sales = result['sales']
-            
-            # Actualizar stock de productos vendidos
-            for sale in synced_sales:
-                for item in sale.items.all():
-                    product = item.product
-                    # Reducir stock (validar que no sea negativo)
-                    if product.stock >= item.quantity:
-                        product.stock -= item.quantity
-                        product.save()
-                    else:
-                        # Si no hay suficiente stock, registrar warning pero permitir la venta
-                        # En producción, podrías querer rechazar la venta o registrar un log
-                        pass
-            
+            # Importante:
+            # - Si la venta viene de un trabajador, queda pending_approval=True y NO descuenta stock aquí.
+            # - Si la venta viene de un admin, el descuento se aplica en el serializer (venta aprobada).
             return Response(
                 {
                     'success': True,
