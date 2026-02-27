@@ -191,12 +191,16 @@ class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
     items_data = SaleItemCreateSerializer(many=True, write_only=True, required=False)
     business_id = serializers.IntegerField(read_only=True)
+    created_by_id = serializers.IntegerField(source='created_by.id', read_only=True)
+    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
 
     class Meta:
         model = Sale
         fields = [
             'uuid',
             'business_id',
+            'created_by_id',
+            'created_by_username',
             'total',
             'created_at',
             'updated_at',
