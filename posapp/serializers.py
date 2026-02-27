@@ -174,10 +174,12 @@ class SaleItemCreateSerializer(serializers.ModelSerializer):
         if not business_id:
             raise serializers.ValidationError("Usuario sin negocio asignado")
         try:
-            product = Product.objects.get(id=value, active=True, business_id=business_id)
+            # value viene desde el dispositivo y representa el ID local del producto.
+            # En el servidor se mapea contra Product.local_id, no contra el UUID (PK).
+            product = Product.objects.get(local_id=value, active=True, business_id=business_id)
         except Product.DoesNotExist:
             raise serializers.ValidationError(
-                f"Producto con id {value} no existe, está inactivo o no pertenece a su negocio"
+                f"Producto con local_id {value} no existe, está inactivo o no pertenece a su negocio"
             )
         return value
 
@@ -234,7 +236,9 @@ class SaleSerializer(serializers.ModelSerializer):
 
         for item_data in items_data:
             product_id = item_data.pop('product_id')
-            product = Product.objects.get(id=product_id, business_id=business_id)
+            # product_id viene del dispositivo y representa el ID local;
+            # lo mapeamos contra Product.local_id.
+            product = Product.objects.get(local_id=product_id, business_id=business_id)
             SaleItem.objects.create(sale=sale, product=product, **item_data)
 
         return sale
@@ -293,7 +297,9 @@ class SaleSyncSerializer(serializers.Serializer):
             if created:
                 for item_data in items_data:
                     product_id = item_data.pop('product_id')
-                    product = Product.objects.get(id=product_id, business_id=business_id)
+                    # product_id viene del dispositivo y es el ID local;
+                    # en el servidor usamos Product.local_id como mediador.
+                    product = Product.objects.get(local_id=product_id, business_id=business_id)
                     SaleItem.objects.create(sale=sale, product=product, **item_data)
                 # Solo reducir stock si es admin (venta aprobada directamente)
                 if not is_worker:
