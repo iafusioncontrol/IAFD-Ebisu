@@ -65,8 +65,15 @@ class LoginView(APIView):
                 {'error': 'Usuario sin perfil de negocio asignado'},
                 status=status.HTTP_403_FORBIDDEN
             )
+        if profile.logged:
+            return Response(
+                {'error': 'Este usuario ya tiene una sesión activa en otro dispositivo'},
+                status=status.HTTP_403_FORBIDDEN
+            )
         from rest_framework.authtoken.models import Token
         token, _ = Token.objects.get_or_create(user=user)
+        profile.logged = True
+        profile.save(update_fields=['logged'])
         return Response({
             'token': token.key,
             'user': {
@@ -77,6 +84,57 @@ class LoginView(APIView):
                 'role': profile.role,
             },
         })
+
+
+class LogoutView(APIView):
+    """
+    POST /api/auth/logout/
+    Cierra sesión y marca logged=False. Requiere estar autenticado.
+    Debe llamarse solo cuando hay conexión (para que logged tenga sentido).
+    """
+    permission_classes = [IsInBusiness]
+
+    def post(self, request):
+        try:
+            profile = request.user.profile
+            profile.logged = False
+            profile.save(update_fields=['logged'])
+            return Response({'success': True})
+        except Exception:
+            return Response({'success': False}, status=status.HTTP_400_BAD_REQUEST)
+
+
+class BusinessCashView(APIView):
+    """
+    GET /api/business/cash/ - Obtiene dinero en caja (todos los usuarios del negocio).
+    PATCH /api/business/cash/ - Actualiza dinero en caja (solo admin).
+    """
+    permission_classes = [IsInBusiness]
+
+    def get(self, request):
+        business = get_business_for_request(request)
+        if not business:
+            return Response({'cash_on_hand': 0})
+        return Response({'cash_on_hand': float(business.cash_on_hand)})
+
+    def patch(self, request):
+        if not (hasattr(request.user, 'profile') and request.user.profile.role == 'admin'):
+            return Response(
+                {'error': 'Solo el administrador puede modificar el dinero en caja'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        business = get_business_for_request(request)
+        if not business:
+            return Response({'error': 'Sin negocio'}, status=status.HTTP_400_BAD_REQUEST)
+        cash = request.data.get('cash_on_hand')
+        if cash is None:
+            return Response({'error': 'cash_on_hand es requerido'}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            business.cash_on_hand = float(cash)
+            business.save(update_fields=['cash_on_hand'])
+            return Response({'cash_on_hand': float(business.cash_on_hand)})
+        except (ValueError, TypeError):
+            return Response({'error': 'cash_on_hand debe ser un número'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ProductViewSet(viewsets.ModelViewSet):
@@ -209,11 +267,13 @@ class PendingSalesView(APIView):
             business=business,
             pending_approval=True
         ).prefetch_related('items__product')
-        # Agregar por producto: { product_id: { product, quantity_sold, partial_amount } }
+        # Agregar por producto: quantity_sold, quantity_merma, merma_detail, partial_amount, commission_total
         agg = {}
         total_amount = 0
         for sale in sales:
             total_amount += float(sale.total)
+            is_merma = getattr(sale, 'merma', False)
+            causa_merma = (getattr(sale, 'causa_merma', None) or '').strip() or None
             for item in sale.items.all():
                 p = item.product
                 pid = p.local_id
@@ -221,18 +281,40 @@ class PendingSalesView(APIView):
                     agg[pid] = {
                         'product': p,
                         'quantity_sold': 0,
+                        'quantity_merma': 0,
+                        'merma_details': [],  # list of "qty (causa)"
                         'partial_amount': 0,
+                        'commission_total': 0,
                     }
-                agg[pid]['quantity_sold'] += item.quantity
-                agg[pid]['partial_amount'] += float(item.total_price)
+                if not is_merma:
+                    agg[pid]['quantity_sold'] += item.quantity
+                    agg[pid]['partial_amount'] += float(item.total_price)
+                    agg[pid]['commission_total'] += float(getattr(item, 'commission_amount', 0) or 0)
+                if is_merma and item.quantity:
+                    agg[pid]['quantity_merma'] += item.quantity
+                    if causa_merma:
+                        agg[pid]['merma_details'].append(f"{item.quantity} ({causa_merma})")
         products = []
         for pid, data in agg.items():
             p = data['product']
+            merma_detail = '; '.join(data['merma_details']) if data['merma_details'] else None
+            price = float(p.price or 0)
+            costo = float(p.costo or 0)
+            comision = float(p.comision or 0)
+            quantity_sold = data['quantity_sold']
+            # Monto por producto = precio * cantidad (sin restar comisiones)
+            monto = quantity_sold * price
+            ganancia = quantity_sold * (price - costo - comision)
             products.append({
                 'product_id': p.local_id,
                 'product_name': p.name,
-                'quantity_sold': data['quantity_sold'],
+                'quantity_sold': quantity_sold,
+                'quantity_merma': data['quantity_merma'],
+                'merma_detail': merma_detail,
                 'partial_amount': data['partial_amount'],
+                'monto': round(monto, 2),
+                'commission_total': round(data['commission_total'], 2),
+                'ganancia': round(ganancia, 2),
             })
         return Response({'products': products, 'total': total_amount})
 
@@ -377,6 +459,39 @@ class RejectSaleView(APIView):
         sale.active = False
         sale.save()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class SyncCashView(APIView):
+    """
+    POST /api/sync/cash/
+    - action=pull: Devuelve cash_on_hand del servidor (todos pueden descargar).
+    - action=push + cash_on_hand: Actualiza cash en servidor (solo admin puede subir).
+    """
+    permission_classes = [IsInBusiness]
+
+    def post(self, request):
+        business = get_business_for_request(request)
+        if not business:
+            return Response({'error': 'Sin negocio'}, status=status.HTTP_400_BAD_REQUEST)
+        action = request.data.get('action', 'pull')
+        if action == 'pull':
+            return Response({'cash_on_hand': float(business.cash_on_hand)})
+        if action == 'push':
+            if not (hasattr(request.user, 'profile') and request.user.profile.role == 'admin'):
+                return Response(
+                    {'error': 'Solo el administrador puede subir el dinero en caja'},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            cash = request.data.get('cash_on_hand')
+            if cash is None:
+                return Response({'error': 'cash_on_hand es requerido para push'}, status=status.HTTP_400_BAD_REQUEST)
+            try:
+                business.cash_on_hand = float(cash)
+                business.save(update_fields=['cash_on_hand'])
+                return Response({'cash_on_hand': float(business.cash_on_hand)})
+            except (ValueError, TypeError):
+                return Response({'error': 'cash_on_hand debe ser un número'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'action debe ser pull o push'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class ProductSyncView(APIView):

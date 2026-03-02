@@ -24,6 +24,9 @@ class ProductSyncItemSerializer(serializers.Serializer):
     updated_at = serializers.DateTimeField()
     active = serializers.BooleanField(default=True, required=False)
     image_base64 = serializers.CharField(allow_blank=True, allow_null=True, required=False)
+    costo = serializers.DecimalField(max_digits=10, decimal_places=2, default=0, required=False)
+    ganancia = serializers.DecimalField(max_digits=10, decimal_places=2, default=0, required=False)
+    comision = serializers.DecimalField(max_digits=10, decimal_places=2, default=0, required=False)
 
     def validate_price(self, value):
         if value <= 0:
@@ -64,6 +67,9 @@ class ProductSyncSerializer(serializers.Serializer):
                     'stock': item['stock'],
                     'updated_at': item['updated_at'],
                     'active': item.get('active', True),
+                    'costo': item.get('costo', 0),
+                    'ganancia': item.get('ganancia', 0),
+                    'comision': item.get('comision', 0),
                 }
             )
             if image_base64 and image_base64.strip():
@@ -99,6 +105,9 @@ class ProductSerializer(serializers.ModelSerializer):
             'image_url',
             'price',
             'stock',
+            'costo',
+            'ganancia',
+            'comision',
             'updated_at',
             'active',
         ]
@@ -144,7 +153,8 @@ class SaleItemSerializer(serializers.ModelSerializer):
             'product_id',
             'product_name',
             'quantity',
-            'total_price'
+            'total_price',
+            'commission_amount',
         ]
 
     def validate_quantity(self, value):
@@ -154,9 +164,9 @@ class SaleItemSerializer(serializers.ModelSerializer):
         return value
 
     def validate_total_price(self, value):
-        """Valida que el precio total sea positivo"""
-        if value <= 0:
-            raise serializers.ValidationError("El precio total debe ser mayor a 0")
+        """Valida que el precio total sea >= 0 (0 permitido en merma)"""
+        if value < 0:
+            raise serializers.ValidationError("El precio total no puede ser negativo")
         return value
 
 
@@ -165,10 +175,13 @@ class SaleItemCreateSerializer(serializers.ModelSerializer):
     Serializer para crear SaleItem. Valida que el producto pertenezca al negocio.
     """
     product_id = serializers.IntegerField(write_only=True)
+    commission_amount = serializers.DecimalField(
+        max_digits=10, decimal_places=2, default=0, required=False,
+    )
 
     class Meta:
         model = SaleItem
-        fields = ['product_id', 'quantity', 'total_price']
+        fields = ['product_id', 'quantity', 'total_price', 'commission_amount']
 
     def validate_product_id(self, value):
         request = self.context.get('request')
@@ -193,8 +206,14 @@ class SaleSerializer(serializers.ModelSerializer):
     items = SaleItemSerializer(many=True, read_only=True)
     items_data = SaleItemCreateSerializer(many=True, write_only=True, required=False)
     business_id = serializers.IntegerField(read_only=True)
-    created_by_id = serializers.IntegerField(source='created_by.id', read_only=True)
-    created_by_username = serializers.CharField(source='created_by.username', read_only=True)
+    created_by_id = serializers.SerializerMethodField()
+    created_by_username = serializers.SerializerMethodField()
+
+    def get_created_by_id(self, obj):
+        return getattr(obj, 'created_by_id', None)
+
+    def get_created_by_username(self, obj):
+        return obj.created_by.username if obj.created_by else None
 
     class Meta:
         model = Sale
@@ -204,6 +223,8 @@ class SaleSerializer(serializers.ModelSerializer):
             'created_by_id',
             'created_by_username',
             'total',
+            'merma',
+            'causa_merma',
             'created_at',
             'updated_at',
             'synced_from_device',
@@ -214,20 +235,23 @@ class SaleSerializer(serializers.ModelSerializer):
         read_only_fields = ['uuid', 'created_at', 'updated_at', 'business_id']
 
     def validate_total(self, value):
-        """Valida que el total sea positivo"""
-        if value <= 0:
-            raise serializers.ValidationError("El total debe ser mayor a 0")
+        """Valida que el total sea >= 0 (0 permitido en merma)"""
+        if value < 0:
+            raise serializers.ValidationError("El total no puede ser negativo")
         return value
 
     def validate(self, attrs):
-        """Valida que la suma de items coincida con el total"""
+        """Valida que la suma de items coincida con el total (excepto en merma donde total=0)"""
         items_data = attrs.get('items_data', [])
-        if items_data:
+        merma = attrs.get('merma', False)
+        if items_data and not merma:
             calculated_total = sum(item['total_price'] for item in items_data)
             if abs(calculated_total - attrs['total']) > 0.01:  # Tolerancia para decimales
                 raise serializers.ValidationError(
                     f"El total ({attrs['total']}) no coincide con la suma de items ({calculated_total})"
                 )
+        if merma:
+            attrs['total'] = 0
         return attrs
 
     def create(self, validated_data):
@@ -253,15 +277,23 @@ class SaleSerializer(serializers.ModelSerializer):
 class SaleSyncItemSerializer(serializers.Serializer):
     """
     Item de venta para sync. Acepta uuid del dispositivo para evitar duplicados.
+    merma=True implica total=0.
     """
     uuid = serializers.UUIDField()
     total = serializers.DecimalField(max_digits=10, decimal_places=2)
+    merma = serializers.BooleanField(default=False, required=False)
+    causa_merma = serializers.CharField(allow_blank=True, allow_null=True, required=False, max_length=255)
     items_data = SaleItemCreateSerializer(many=True)
 
     def validate_total(self, value):
-        if value <= 0:
-            raise serializers.ValidationError("El total debe ser mayor a 0")
+        if value < 0:
+            raise serializers.ValidationError("El total no puede ser negativo")
         return value
+
+    def validate(self, attrs):
+        if attrs.get('merma', False):
+            attrs['total'] = 0
+        return attrs
 
 
 class SaleSyncSerializer(serializers.Serializer):
@@ -294,6 +326,8 @@ class SaleSyncSerializer(serializers.Serializer):
                 business_id=business_id,
                 defaults={
                     'total': sale_data['total'],
+                    'merma': sale_data.get('merma', False),
+                    'causa_merma': (sale_data.get('causa_merma') or '').strip() or None,
                     'synced_from_device': True,
                     'active': True,
                     'created_by': request.user,
@@ -303,10 +337,15 @@ class SaleSyncSerializer(serializers.Serializer):
             if created:
                 for item_data in items_data:
                     product_id = item_data.pop('product_id')
+                    commission_amount = item_data.pop('commission_amount', 0)
                     # product_id viene del dispositivo y es el ID local;
                     # en el servidor usamos Product.local_id como mediador.
                     product = Product.objects.get(local_id=product_id, business_id=business_id)
-                    SaleItem.objects.create(sale=sale, product=product, **item_data)
+                    SaleItem.objects.create(
+                        sale=sale, product=product,
+                        commission_amount=commission_amount,
+                        **item_data,
+                    )
                 # Solo reducir stock si es admin (venta aprobada directamente)
                 if not is_worker:
                     for item in sale.items.all():

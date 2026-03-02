@@ -25,6 +25,13 @@ class Business(models.Model):
     """
     id = models.AutoField(primary_key=True)
     name = models.CharField(max_length=255, verbose_name="Nombre del negocio")
+    cash_on_hand = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        verbose_name="Dinero en caja",
+        help_text="Cantidad de dinero en caja. Solo el administrador puede editarlo.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     active = models.BooleanField(default=True, db_index=True)
@@ -66,6 +73,12 @@ class UserProfile(models.Model):
         choices=ROLE_CHOICES,
         default=ROLE_WORKER,
         db_index=True,
+    )
+    logged = models.BooleanField(
+        default=False,
+        verbose_name="Sesión activa",
+        db_index=True,
+        help_text="True si el usuario está autenticado en algún dispositivo.",
     )
 
     class Meta:
@@ -139,6 +152,30 @@ class Product(models.Model):
         verbose_name="Activo",
         db_index=True,
         help_text="Indica si el producto está activo (soft delete)"
+    )
+    costo = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        blank=True,
+        verbose_name="Costo",
+        help_text="Costo del producto",
+    )
+    ganancia = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        blank=True,
+        verbose_name="Ganancia",
+        help_text="Ganancia del producto",
+    )
+    comision = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        blank=True,
+        verbose_name="Comisión",
+        help_text="Comisión del producto",
     )
 
     class Meta:
@@ -234,6 +271,19 @@ class Sale(models.Model):
         db_index=True,
         help_text="True si fue enviada por trabajador y admin aún no la aprobó",
     )
+    merma = models.BooleanField(
+        default=False,
+        verbose_name="Merma",
+        db_index=True,
+        help_text="True si es una venta de merma (total=0, baja de stock sin ingreso)",
+    )
+    causa_merma = models.CharField(
+        max_length=255,
+        blank=True,
+        null=True,
+        verbose_name="Causa de la merma",
+        help_text="Descripción de la causa de la merma",
+    )
 
     class Meta:
         db_table = 'sales'
@@ -284,7 +334,14 @@ class SaleItem(models.Model):
         max_digits=10,
         decimal_places=2,
         verbose_name="Precio Total",
-        help_text="Precio total del item (quantity * product.price)"
+        help_text="Precio total del item (cantidad * (precio - comisión))"
+    )
+    commission_amount = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        default=0,
+        verbose_name="Monto comisión",
+        help_text="Cantidad entregada por comisión (cantidad * product.comision)",
     )
 
     class Meta:
@@ -302,12 +359,12 @@ class SaleItem(models.Model):
         return f"{self.product.name} x{self.quantity} - ${self.total_price}"
 
     def clean(self):
-        """Valida que la cantidad sea mayor a 0"""
+        """Valida que la cantidad sea mayor a 0. total_price puede ser 0 en ventas de merma."""
         from django.core.exceptions import ValidationError
         if self.quantity <= 0:
             raise ValidationError({'quantity': 'La cantidad debe ser mayor a 0'})
-        if self.total_price <= 0:
-            raise ValidationError({'total_price': 'El precio total debe ser mayor a 0'})
+        if self.total_price < 0:
+            raise ValidationError({'total_price': 'El precio total no puede ser negativo'})
 
     def save(self, *args, **kwargs):
         """Valida antes de guardar"""

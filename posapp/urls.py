@@ -5,7 +5,10 @@ from .views import (
     SaleViewSet,
     SaleSyncView,
     ProductSyncView,
+    SyncCashView,
     LoginView,
+    LogoutView,
+    BusinessCashView,
     BusinessUsersView,
     PendingSalesView,
     ApproveAllPendingView,
@@ -23,6 +26,9 @@ app_name = 'posapp'
 
 urlpatterns = [
     path('auth/login/', LoginView.as_view(), name='login'),
+    path('auth/logout/', LogoutView.as_view(), name='logout'),
+    path('business/cash/', BusinessCashView.as_view(), name='business-cash'),
+    path('sync/cash/', SyncCashView.as_view(), name='sync-cash'),
     path('users/', BusinessUsersView.as_view(), name='business-users'),
     path('', include(router.urls)),
     path('sync/products/', ProductSyncView.as_view(), name='sync-products'),

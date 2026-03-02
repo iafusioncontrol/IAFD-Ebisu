@@ -38,6 +38,7 @@ SECRET_KEY = os.getenv('SECRET_KEY')
 DEBUG = os.getenv('DEBUG') == 'True'
 
 ALLOWED_HOSTS = ["web-production-fd368.up.railway.app"]
+# ALLOWED_HOSTS = ["*"]
 
 # Application definition
 
